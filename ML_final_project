@@ -1,0 +1,148 @@
+# --- Step 1: Import libraries ---
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from sklearn.datasets import fetch_california_housing
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.metrics import mean_absolute_error, r2_score
+
+import ipywidgets as widgets
+from IPython.display import display
+
+
+# --- Step 2: Load dataset ---
+housing = fetch_california_housing(as_frame=True)
+df = housing.frame  # This includes features + target
+df.rename(columns={'MedHouseVal': 'Target'}, inplace=True)
+
+
+# --- Step 3: Data overview ---
+print(f"Dataset shape (rows, cols): {df.shape}")
+print("\nData types:\n", df.dtypes)
+print("\nStatistical summary:\n", df.describe(percentiles=[0.25, 0.5, 0.75]))
+
+print("\nCheck for missing values:\n", df.isnull().sum())
+
+
+# --- Step 4: Correlation matrix ---
+corr = df.corr()
+plt.figure(figsize=(10, 8))
+sns.heatmap(corr, annot=True, cmap='coolwarm', fmt=".2f")
+plt.title("Correlation Matrix")
+plt.show()
+
+
+# --- Step 5: Feature engineering ---
+# Add two new features:
+df['Rooms_per_Occupant'] = df['AveRooms'] / (df['AveOccup'] + 1e-5)
+df['Bedrooms_per_Room'] = df['AveBedrms'] / (df['AveRooms'] + 1e-5)
+
+
+# --- Step 6: Check for outliers (boxplots) ---
+features_to_check = df.columns.drop('Target')
+plt.figure(figsize=(15, 12))  # increased height for 10 plots
+for i, feature in enumerate(features_to_check, 1):
+    plt.subplot(4, 3, i)  # 4 rows, 3 cols grid
+    sns.boxplot(x=df[feature])
+    plt.title(feature)
+plt.tight_layout()
+plt.show()
+
+# For this project, we keep outliers as is, as they are natural in housing data.
+
+
+# --- Step 7: Prepare data for modeling ---
+X = df.drop('Target', axis=1)
+y = df['Target']
+
+# Scale features to 0-1 range
+scaler = MinMaxScaler()
+X_scaled = pd.DataFrame(scaler.fit_transform(X), columns=X.columns)
+
+
+# --- Step 8: Split data ---
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+
+
+# --- Step 9: Train models ---
+lr = LinearRegression()
+lr.fit(X_train, y_train)
+
+knn = KNeighborsRegressor(n_neighbors=5)
+knn.fit(X_train, y_train)
+
+
+# --- Step 10: Evaluate models ---
+def evaluate_model(name, model):
+    y_pred = model.predict(X_test)
+    mae = mean_absolute_error(y_test, y_pred)
+    r2 = r2_score(y_test, y_pred)
+    print(f"{name} MAE: {mae:.4f}")
+    print(f"{name} R²: {r2:.4f}")
+    print()
+
+evaluate_model("Linear Regression", lr)
+evaluate_model("KNN Regressor", knn)
+
+
+# --- Step 11: Interactive input sliders for manual prediction ---
+def interactive_prediction():
+    feature_ranges = {
+        'MedInc': (0.5, 15.0),
+        'HouseAge': (1, 50),
+        'AveRooms': (1, 15),
+        'AveBedrms': (0, 5),
+        'Population': (0, 4000),
+        'AveOccup': (0.5, 10),
+        'Latitude': (32, 42),
+        'Longitude': (-125, -113),
+        'Rooms_per_Occupant': (0, 50),
+        'Bedrooms_per_Room': (0, 1),
+    }
+
+    sliders = {}
+    for feature, (min_val, max_val) in feature_ranges.items():
+        sliders[feature] = widgets.FloatSlider(
+            value=(min_val + max_val) / 2,
+            min=min_val,
+            max=max_val,
+            step=0.1,
+            description=feature,
+            continuous_update=False
+        )
+
+    button = widgets.Button(description="Predict House Price")
+    output = widgets.Output()
+
+    def on_click(b):
+        with output:
+            output.clear_output()
+            # Collect values into dataframe
+            input_data = {f: sliders[f].value for f in sliders}
+            input_df = pd.DataFrame([input_data])
+            # Scale input data
+            input_scaled = scaler.transform(input_df)
+            # Predict
+            pred_lr = lr.predict(input_scaled)[0]
+            pred_knn = knn.predict(input_scaled)[0]
+            print("\n")
+            print(f"Predicted House Price (in 100,000s):")
+            print(f" - Linear Regression: {pred_lr:.3f}")
+            print(f" - KNN Regressor: {pred_knn:.3f}")
+            print("\n\n\n")
+
+    button.on_click(on_click)
+
+    display(*(sliders.values()), button, output)
+
+# To launch the UI, just call:
+# interactive_prediction()
+
+
+
+interactive_prediction()
